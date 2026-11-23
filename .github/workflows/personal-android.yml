@@ -1,0 +1,39 @@
+name: Personal Android APK
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: yarn
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: yarn install --frozen-lockfile --ignore-scripts
+      - run: npx tsc --noEmit --noUnusedLocals false --noUnusedParameters false
+      - run: yarn lint --max-warnings 0
+      - run: node --experimental-vm-modules scripts/test-bilingual.cjs
+      - run: yarn build
+      - run: npx cap sync android
+      - run: chmod +x android/gradlew && cd android && ./gradlew assembleDebug --no-daemon
+      - name: Verify renderer and write checksum
+        run: |
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep 'assets/public/index.html'
+          sha256sum android/app/build/outputs/apk/debug/app-debug.apk > SHA256SUMS.txt
+          git rev-parse HEAD > SOURCE_COMMIT.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: personal-reader-debug
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            SHA256SUMS.txt
+            SOURCE_COMMIT.txt

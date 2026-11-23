@@ -1,4 +1,5 @@
 import React from "react";
+import BilingualReader from "../../components/bilingualReader";
 import { ViewerProps, ViewerState } from "./interface";
 import { withRouter } from "react-router-dom";
 import BookUtil from "../../utils/file/bookUtil";
@@ -645,6 +646,7 @@ class Viewer extends React.Component<ViewerProps, ViewerState> {
   render() {
     return (
       <>
+        {this.props.currentBook.format === "EPUB" && <BilingualReader bookKey={this.props.currentBook.key} chapter={this.state.chapterDocIndex} />}
         {this.props.htmlBook ? (
           <PopupMenu
             {...({
