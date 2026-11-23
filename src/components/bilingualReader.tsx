@@ -13,11 +13,10 @@ export default function BilingualReader({ bookKey, chapter }: { bookKey: string;
   const [translations, setTranslations] = useState<Record<number, string>>({});
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const request = useRef<AbortController | null>(null);
-  const generation = useRef(0);
+  const request = useRef<{ active: boolean; controller: AbortController | null }>({ active: false, controller: null });
   useEffect(() => {
-    const id = ++generation.current;
-    request.current?.abort();
+    const session = { active: true, controller: null as AbortController | null };
+    request.current = session;
     setBusy(false); setTranslations({}); setTexts([]);
     if (!open) return;
     const timer = setTimeout(() => {
@@ -28,34 +27,34 @@ export default function BilingualReader({ bookKey, chapter }: { bookKey: string;
       paragraphs.forEach(async (text, index) => {
         try {
           const value = await cachedTranslation(text, config);
-          if (value && id === generation.current) setTranslations(old => ({ ...old, [index]: value }));
+          if (value && session.active) setTranslations(old => ({ ...old, [index]: value }));
         } catch { /* API configuration may not yet be set. */ }
       });
     }, 400);
-    return () => { clearTimeout(timer); ++generation.current; request.current?.abort(); };
+    return () => { clearTimeout(timer); session.active = false; session.controller?.abort(); };
   }, [open, bookKey, chapter, config]);
   async function run() {
     const controller = new AbortController();
-    request.current = controller;
-    const id = generation.current;
+    const session = request.current;
+    session.controller = controller;
     setBusy(true);
     try {
       completionUrl(config.baseUrl);
       localStorage.setItem("bilingual-config", JSON.stringify(config));
       let count = 0;
       for (let i = 0; i < texts.length && count < 20; i++) {
-        if (controller.signal.aborted || id !== generation.current) break;
+        if (controller.signal.aborted || !session.active) break;
         if (translations[i]) continue;
         setMessage(`正在翻译第 ${i + 1} 段，已完成 ${count} 段`);
         const result = await translateParagraph(texts[i], config, apiKey, controller.signal);
-        if (controller.signal.aborted || id !== generation.current) break;
+        if (controller.signal.aborted || !session.active) break;
         setTranslations(old => ({ ...old, [i]: result }));
         count++;
       }
-      if (id === generation.current) setMessage(controller.signal.aborted ? "已停止，已完成的译文已缓存" : "本次完成；可继续翻译后续段落");
+      if (session.active) setMessage(controller.signal.aborted ? "已停止，已完成的译文已缓存" : "本次完成；可继续翻译后续段落");
     } catch (error) {
-      if (id === generation.current) setMessage(controller.signal.aborted ? "已停止，已完成的译文已缓存" : error instanceof Error ? error.message : "翻译失败，请重试");
-    } finally { if (id === generation.current) setBusy(false); }
+      if (session.active) setMessage(controller.signal.aborted ? "已停止，已完成的译文已缓存" : error instanceof Error ? error.message : "翻译失败，请重试");
+    } finally { if (session.active) setBusy(false); }
   }
   return <div style={{ position: "fixed", right: 12, bottom: 55, zIndex: 10001 }}>
     <button onClick={() => setOpen(!open)}>中英对照</button>
@@ -67,7 +66,7 @@ export default function BilingualReader({ bookKey, chapter }: { bookKey: string;
       <label>模型<input style={{ width: "100%" }} disabled={busy} value={config.model} onChange={e => setConfig({ ...config, model: e.target.value })} /></label>
       <label>API 密钥（仅本次会话）<input style={{ width: "100%" }} disabled={busy} type="password" autoComplete="off" value={apiKey} onChange={e => setApiKey(e.target.value)} /></label>
       <button disabled={busy || !texts.length} onClick={run}>翻译接下来 20 段 / 重试</button>
-      <button disabled={!busy} onClick={() => request.current?.abort()}>停止</button>
+      <button disabled={!busy} onClick={() => request.current.controller?.abort()}>停止</button>
       <p role="status">{message}</p>
       {texts.map((text, index) => <article key={index} style={{ borderBottom: "1px solid #ddd", padding: "12px 0", lineHeight: 1.8 }}>
         <p lang="en">{text}</p><p lang="zh-CN" style={{ color: "#32634e" }}>{translations[index] || "尚未翻译"}</p>
